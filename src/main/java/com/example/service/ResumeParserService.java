@@ -126,4 +126,21 @@ public class ResumeParserService {
         if (content.contains("1年") || content.contains("一年") || content.contains("1+")) return 1;
         return 0;
     }
+
+    // 在 ResumeParserService.java 中添加这个方法
+    public ParsedResume parseImageResume(MultipartFile file, String ocrText) {
+        long startTime = System.currentTimeMillis();
+        try {
+            ParsedResume resume = extractResumeInfo(ocrText);
+            resume.setFileName(file.getOriginalFilename());
+
+            long endTime = System.currentTimeMillis();
+            log.info("图片简历解析完成: {}, 耗时: {}ms", file.getOriginalFilename(), endTime - startTime);
+
+            return resume;
+        } catch (Exception e) {
+            log.error("解析图片简历失败: {}", file.getOriginalFilename(), e);
+            throw new RuntimeException("图片简历解析失败: " + e.getMessage());
+        }
+    }
 }

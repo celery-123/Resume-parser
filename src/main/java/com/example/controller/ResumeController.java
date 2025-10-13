@@ -10,7 +10,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -82,16 +84,65 @@ public class ResumeController {
 
     private ParsedResume parseResumeWithOCR(MultipartFile file) {
         if (ocrResumeParser.isImageFile(file.getOriginalFilename())) {
-            String ocrText = ocrResumeParser.parseImageResume(file);
-            // 简化处理：创建基础简历对象
-            ParsedResume resume = new ParsedResume();
-            resume.setRawText(ocrText);
-            resume.setFileName(file.getOriginalFilename());
-            resume.setSkills(resumeParserService.extractSkills(ocrText));
-            return resume;
+            log.info("检测到图片简历，启动OCR解析: {}", file.getOriginalFilename());
+
+            // 检查OCR功能是否可用
+            if (!ocrResumeParser.isOCRAvailable()) {
+                log.warn("OCR功能未完全配置，使用基础文本处理");
+                return createBasicResumeFromImage(file);
+            }
+
+            try {
+                String ocrText = ocrResumeParser.parseImageResume(file);
+                log.info("OCR识别结果字符数: {}", ocrText.length());
+
+                // 使用专门的图片简历解析方法
+                return resumeParserService.parseImageResume(file, ocrText);
+
+            } catch (Exception e) {
+                log.error("OCR解析失败，回退到基础处理", e);
+                return createBasicResumeFromImage(file);
+            }
         } else {
             return resumeParserService.parseResume(file);
         }
+    }
+
+    /**
+     * OCR不可用时的备选方案
+     */
+    private ParsedResume createBasicResumeFromImage(MultipartFile file) {
+        ParsedResume resume = new ParsedResume();
+        resume.setFileName(file.getOriginalFilename());
+        resume.setRawText("图片简历 - 需要OCR功能支持完整解析");
+
+        // 设置基础信息
+        resume.getPersonalInfo().setName("待识别");
+        resume.setSkills(Arrays.asList("图片简历技能待识别"));
+
+        return resume;
+    }
+
+    @GetMapping("/ocr-status")
+    public ResponseEntity<Map<String, Object>> getOCRStatus() {
+        Map<String, Object> status = new HashMap<>();
+
+        boolean ocrAvailable = ocrResumeParser.isOCRAvailable();
+        status.put("ocrAvailable", ocrAvailable);
+        status.put("tessdataPath", "./tessdata");
+
+        // 检查语言包文件
+        File tessdataDir = new File("./tessdata");
+        if (tessdataDir.exists()) {
+            String[] languagePacks = tessdataDir.list((dir, name) -> name.endsWith(".traineddata"));
+            status.put("languagePacks", languagePacks != null ? Arrays.asList(languagePacks) : Collections.emptyList());
+        } else {
+            status.put("languagePacks", Collections.emptyList());
+        }
+
+        status.put("supportedImageFormats", Arrays.asList("jpg", "jpeg", "png", "bmp", "tiff", "tif"));
+
+        return ResponseEntity.ok(status);
     }
 
     @GetMapping("/health")
