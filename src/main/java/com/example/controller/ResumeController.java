@@ -11,10 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 @Slf4j
 @RestController
@@ -174,5 +171,58 @@ public class ResumeController {
         ));
 
         return ResponseEntity.ok(algorithms);
+    }
+
+    @PostMapping("/test-ocr")
+    public ResponseEntity<Map<String, Object>> testOCR(@RequestParam("file") MultipartFile file) {
+        log.info("OCR专用测试接口，文件: {}", file.getOriginalFilename());
+
+        Map<String, Object> result = new HashMap<>();
+
+        try {
+            // 检查是否为图片文件
+            if (!ocrResumeParser.isImageFile(file.getOriginalFilename())) {
+                result.put("success", false);
+                result.put("message", "请上传图片文件 (jpg, png, bmp等)");
+                return ResponseEntity.badRequest().body(result);
+            }
+
+            // 检查OCR状态
+            boolean ocrAvailable = ocrResumeParser.isOCRAvailable();
+            result.put("ocrAvailable", ocrAvailable);
+
+            if (!ocrAvailable) {
+                result.put("success", false);
+                result.put("message", "OCR功能未配置，请下载语言包到 tessdata 目录");
+                return ResponseEntity.ok(result);
+            }
+
+            // 执行OCR解析
+            long startTime = System.currentTimeMillis();
+            String ocrText = ocrResumeParser.parseImageResume(file);
+            long endTime = System.currentTimeMillis();
+
+            result.put("success", true);
+            result.put("fileName", file.getOriginalFilename());
+            result.put("fileSize", file.getSize());
+            result.put("processingTimeMs", endTime - startTime);
+            result.put("ocrTextLength", ocrText.length());
+            result.put("ocrText", ocrText);
+
+            // 尝试提取技能信息
+            List<String> skills = resumeParserService.extractSkills(ocrText);
+            result.put("extractedSkills", skills);
+
+            log.info("OCR测试完成: {}, 识别字符: {}, 提取技能: {}",
+                    file.getOriginalFilename(), ocrText.length(), skills.size());
+
+            return ResponseEntity.ok(result);
+
+        } catch (Exception e) {
+            log.error("OCR测试失败", e);
+            result.put("success", false);
+            result.put("message", "OCR解析失败: " + e.getMessage());
+            return ResponseEntity.status(500).body(result);
+        }
     }
 }
